@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image & PDF Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link href="./output.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3a8a, #7e22ce);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Inter', sans-serif;
+        }
+        .converter-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 2rem;
+            width: 100%;
+            max-width: 600px;
+            transform: translateY(0);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .converter-container:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+        .btn-primary {
+            background: linear-gradient(to right, #3b82f6, #8b5cf6);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            transition: transform 0.2s ease, background 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: scale(1.05);
+            background: linear-gradient(to right, #2563eb, #7c3aed);
+        }
+        .image-preview {
+            position: relative;
+            overflow: hidden;
+            border-radius: 0.75rem;
+            border: 2px dashed #d1d5db;
+            transition: border-color 0.3s ease;
+        }
+        .image-preview img {
+            transform: scale(1);
+            transition: transform 0.5s ease, opacity 0.5s ease;
+            opacity: 1;
+        }
+        .image-preview img:hover {
+            transform: scale(1.1);
+            opacity: 0.9;
+        }
+        .drop-zone {
+            border: 2px dashed #9ca3af;
+            border-radius: 0.75rem;
+            padding: 2rem;
+            text-align: center;
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
+        .drop-zone.dragover {
+            background: #e5e7eb;
+            border-color: #3b82f6;
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .progress-bar {
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(to right, #3b82f6, #8b5cf6);
+            width: 0;
+            transition: width 0.3s ease;
+        }
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%233b82f6'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1.5em;
+            transition: border-color 0.3s ease;
+        }
+        select:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="converter-container fade-in">
+        <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">Image & PDF Converter</h1>
+        <div class="drop-zone" id="dropZone">
+            <p class="text-gray-600">Drag & Drop JPG, PNG, WebP, or PDF file here or click to upload</p>
+            <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,application/pdf" class="hidden">
+        </div>
+        <div class="image-preview mt-4 hidden" id="previewContainer">
+            <img id="previewImage" class="w-full h-auto" alt="Image Preview">
+        </div>
+        <div class="mt-4">
+            <label for="outputFormat" class="block text-sm font-medium text-gray-700">Output Format</label>
+            <select id="outputFormat" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none">
+                <option value="pdf">PDF</option>
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+            </select>
+        </div>
+        <div class="mt-4">
+            <div class="progress-bar hidden" id="progressBar">
+                <div class="progress-bar-inner" id="progressBarInner"></div>
+            </div>
+        </div>
+        <div class="flex justify-center mt-6 space-x-4">
+            <button class="btn-primary" id="convertButton" disabled>Convert</button>
+            <button class="btn-primary hidden" id="downloadButton">Download</button>
+        </div>
+        <p class="text-red-500 text-sm mt-2 hidden" id="errorMessage">Please upload a valid JPG, PNG, WebP, or PDF file.</p>
+    </div>
+
+    <script>
+        const { jsPDF } = window.jspdf || {};
+        if (!jsPDF) {
+            console.error('jsPDF not loaded. Please check the script source.');
+            document.getElementById('errorMessage').textContent = 'jsPDF library failed to load.';
+            document.getElementById('errorMessage').classList.remove('hidden');
+        }
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewContainer = document.getElementById('previewContainer');
+        const previewImage = document.getElementById('previewImage');
+        const outputFormat = document.getElementById('outputFormat');
+        const convertButton = document.getElementById('convertButton');
+        const downloadButton = document.getElementById('downloadButton');
+        const errorMessage = document.getElementById('errorMessage');
+        const progressBar = document.getElementById('progressBar');
+        const progressBarInner = document.getElementById('progressBarInner');
+        let outputFile = null;
+        let outputFileName = '';
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            handleFile(file);
+        });
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFile(file);
+        });
+
+        function handleFile(file) {
+            console.log('Handling file:', file);
+            if (!file) {
+                errorMessage.textContent = 'No file selected.';
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+            if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) {
+                errorMessage.classList.add('hidden');
+                if (file.type !== 'application/pdf') {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        console.log('FileReader loaded:', reader.result.substring(0, 50));
+                        previewImage.src = reader.result;
+                        previewContainer.classList.remove('hidden');
+                        convertButton.disabled = false;
+                        convertButton.classList.add('fade-in');
+                    };
+                    reader.onerror = () => {
+                        console.error('FileReader error:', reader.error);
+                        errorMessage.textContent = 'Error reading file.';
+                        errorMessage.classList.remove('hidden');
+                        previewContainer.classList.add('hidden');
+                        convertButton.disabled = true;
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    console.log('PDF file detected, no preview available.');
+                    previewContainer.classList.add('hidden');
+                    convertButton.disabled = false;
+                    convertButton.classList.add('fade-in');
+                }
+            } else {
+                console.error('Invalid file type:', file.type);
+                errorMessage.textContent = 'Please upload a valid JPG, PNG, WebP, or PDF file.';
+                errorMessage.classList.remove('hidden');
+                previewContainer.classList.add('hidden');
+                convertButton.disabled = true;
+            }
+        }
+
+        convertButton.addEventListener('click', () => {
+            console.log('Convert button clicked');
+            if (!fileInput.files[0]) {
+                console.error('No file selected for conversion');
+                errorMessage.textContent = 'No file selected.';
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+            convertButton.disabled = true;
+            progressBar.classList.remove('hidden');
+            progressBarInner.style.width = '0%';
+            const file = fileInput.files[0];
+            const format = outputFormat.value;
+            console.log('Converting to:', format);
+
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += 20;
+                progressBarInner.style.width = `${Math.min(progress, 100)}%`;
+                if (progress >= 100) clearInterval(progressInterval);
+            }, 200);
+
+            if (format === 'pdf') {
+                if (file.type === 'application/pdf') {
+                    console.log('Passing through PDF file');
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        outputFile = new Blob([reader.result], { type: 'application/pdf' });
+                        outputFileName = 'converted.pdf';
+                        finalizeConversion();
+                    };
+                    reader.onerror = () => {
+                        console.error('Error reading PDF:', reader.error);
+                        errorMessage.textContent = 'Error reading PDF file.';
+                        errorMessage.classList.remove('hidden');
+                        clearInterval(progressInterval);
+                        progressBar.classList.add('hidden');
+                        convertButton.disabled = false;
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    console.log('Converting image to PDF');
+                    const img = new Image();
+                    img.src = previewImage.src;
+                    img.onload = () => {
+                        try {
+                            const pdf = new jsPDF({
+                                orientation: img.width > img.height ? 'landscape' : 'portrait',
+                                unit: 'px',
+                                format: [img.width, img.height]
+                            });
+                            pdf.addImage(img, file.type.split('/')[1].toUpperCase(), 0, 0, img.width, img.height);
+                            outputFile = pdf.output('blob');
+                            outputFileName = 'converted.pdf';
+                            finalizeConversion();
+                        } catch (err) {
+                            console.error('PDF conversion error:', err);
+                            errorMessage.textContent = 'Error converting to PDF.';
+                            errorMessage.classList.remove('hidden');
+                            clearInterval(progressInterval);
+                            progressBar.classList.add('hidden');
+                            convertButton.disabled = false;
+                        }
+                    };
+                    img.onerror = () => {
+                        console.error('Image load error for PDF conversion');
+                        errorMessage.textContent = 'Error processing image.';
+                        errorMessage.classList.remove('hidden');
+                        clearInterval(progressInterval);
+                        progressBar.classList.add('hidden');
+                        convertButton.disabled = false;
+                    };
+                }
+            } else {
+                console.log('Converting to image format:', format);
+                const img = new Image();
+                img.src = previewImage.src;
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                console.log('Image blob created, size:', blob.size);
+                                outputFile = blob;
+                                outputFileName = `converted.${format}`;
+                                finalizeConversion();
+                            } else {
+                                console.error('Failed to create image blob');
+                                errorMessage.textContent = 'Error converting image.';
+                                errorMessage.classList.remove('hidden');
+                                clearInterval(progressInterval);
+                                progressBar.classList.add('hidden');
+                                convertButton.disabled = false;
+                            }
+                        }, `image/${format}`, 1.0);
+                    } catch (err) {
+                        console.error('Image conversion error:', err);
+                        errorMessage.textContent = 'Error converting image.';
+                        errorMessage.classList.remove('hidden');
+                        clearInterval(progressInterval);
+                        progressBar.classList.add('hidden');
+                        convertButton.disabled = false;
+                    }
+                };
+                img.onerror = () => {
+                    console.error('Image load error for conversion');
+                    errorMessage.textContent = 'Error processing image.';
+                    errorMessage.classList.remove('hidden');
+                    clearInterval(progressInterval);
+                    progressBar.classList.add('hidden');
+                    convertButton.disabled = false;
+                };
+            }
+        });
+
+        function finalizeConversion() {
+            console.log('Finalizing conversion, outputFile:', !!outputFile);
+            setTimeout(() => {
+                progressBar.classList.add('hidden');
+                convertButton.classList.add('hidden');
+                downloadButton.classList.remove('hidden');
+                downloadButton.classList.add('fade-in');
+            }, 1000);
+        }
+
+        downloadButton.addEventListener('click', () => {
+            console.log('Download button clicked, outputFile:', !!outputFile);
+            if (outputFile) {
+                try {
+                    const url = URL.createObjectURL(outputFile);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = outputFileName;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    resetApp();
+                } catch (err) {
+                    console.error('Download error:', err);
+                    errorMessage.textContent = 'Error downloading file.';
+                    errorMessage.classList.remove('hidden');
+                }
+            } else {
+                console.error('No output file available for download');
+                errorMessage.textContent = 'No file available for download.';
+                errorMessage.classList.remove('hidden');
+            }
+        });
+
+        function resetApp() {
+            console.log('Resetting app');
+            previewContainer.classList.add('hidden');
+            previewImage.src = '';
+            convertButton.disabled = true;
+            convertButton.classList.remove('hidden');
+            downloadButton.classList.add('hidden');
+            fileInput.value = '';
+            outputFile = null;
+            outputFileName = '';
+            errorMessage.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
